@@ -7,6 +7,8 @@ from .models import EdgeModel, InpaintingModel
 from .utils import Progbar, create_dir, stitch_images, imsave
 from .metrics import PSNR, EdgeAccuracy
 
+from torch.utils.tensorboard import SummaryWriter
+
 
 class EdgeConnect():
     def __init__(self, config):
@@ -47,6 +49,7 @@ class EdgeConnect():
             self.debug = True
 
         self.log_file = os.path.join(config.PATH, 'log_' + model_name + '.dat')
+        self.writer = SummaryWriter(comment=f'_{self.model_name}_LOG')  # New code: Tensorboard writer
 
     def load(self):
         if self.config.MODEL == 1:
@@ -108,8 +111,8 @@ class EdgeConnect():
 
                     # metrics
                     precision, recall = self.edgeacc(edges * masks, outputs * masks)
-                    logs.append(('precision', precision.item()))
-                    logs.append(('recall', recall.item()))
+                    logs.append(('precision/train/edge', precision.item()))
+                    logs.append(('recall/train/edge', recall.item()))
 
                     # backward
                     self.edge_model.backward(gen_loss, dis_loss)
@@ -125,8 +128,8 @@ class EdgeConnect():
                     # metrics
                     psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                     mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
-                    logs.append(('psnr', psnr.item()))
-                    logs.append(('mae', mae.item()))
+                    logs.append(('psnr/train/inpaint', psnr.item()))
+                    logs.append(('mae/train/inpaint', mae.item()))
 
                     # backward
                     self.inpaint_model.backward(gen_loss, dis_loss)
@@ -148,8 +151,8 @@ class EdgeConnect():
                     # metrics
                     psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                     mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
-                    logs.append(('psnr', psnr.item()))
-                    logs.append(('mae', mae.item()))
+                    logs.append(('psnr/train/inpaint_w_edge', psnr.item()))
+                    logs.append(('mae/train/inpaint_w_edge', mae.item()))
 
                     # backward
                     self.inpaint_model.backward(gen_loss, dis_loss)
@@ -168,10 +171,10 @@ class EdgeConnect():
                     psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                     mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
                     precision, recall = self.edgeacc(edges * masks, e_outputs * masks)
-                    e_logs.append(('pre', precision.item()))
-                    e_logs.append(('rec', recall.item()))
-                    i_logs.append(('psnr', psnr.item()))
-                    i_logs.append(('mae', mae.item()))
+                    e_logs.append(('precision/train/joint', precision.item()))
+                    e_logs.append(('recall/train/joint', recall.item()))
+                    i_logs.append(('psnr/train/joint', psnr.item()))
+                    i_logs.append(('mae/train/joint', mae.item()))
                     logs = e_logs + i_logs
 
                     # backward
@@ -188,6 +191,14 @@ class EdgeConnect():
                     ("epoch", epoch),
                     ("iter", iteration),
                 ] + logs
+
+
+                self.writer.add_scalar('epoch', epoch, iteration)  # log epoch
+                self.writer.add_scalar('iteration', iteration, iteration)  # log iteration
+                
+                for _log in logs:
+                    self.writer.add_scalar(_log[0], _log[1], iteration) 
+
 
                 progbar.add(len(images), values=logs if self.config.VERBOSE else [x for x in logs if not x[0].startswith('l_')])
 
@@ -238,8 +249,8 @@ class EdgeConnect():
 
                 # metrics
                 precision, recall = self.edgeacc(edges * masks, outputs * masks)
-                logs.append(('precision', precision.item()))
-                logs.append(('recall', recall.item()))
+                logs.append(('precision/eval/edge', precision.item()))
+                logs.append(('recall/eval/edge', recall.item()))
 
 
             # inpaint model
@@ -251,8 +262,8 @@ class EdgeConnect():
                 # metrics
                 psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                 mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
-                logs.append(('psnr', psnr.item()))
-                logs.append(('mae', mae.item()))
+                logs.append(('psnr/eval/inpaint', psnr.item()))
+                logs.append(('mae/eval/inpaint', mae.item()))
 
 
             # inpaint with edge model
@@ -267,8 +278,8 @@ class EdgeConnect():
                 # metrics
                 psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                 mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
-                logs.append(('psnr', psnr.item()))
-                logs.append(('mae', mae.item()))
+                logs.append(('psnr/eval/inpaint_w_edge', psnr.item()))
+                logs.append(('mae/eval/inpaint_w_edge', mae.item()))
 
 
             # joint model
@@ -283,14 +294,18 @@ class EdgeConnect():
                 psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                 mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
                 precision, recall = self.edgeacc(edges * masks, e_outputs * masks)
-                e_logs.append(('pre', precision.item()))
-                e_logs.append(('rec', recall.item()))
-                i_logs.append(('psnr', psnr.item()))
-                i_logs.append(('mae', mae.item()))
+                e_logs.append(('pre/eval/joint', precision.item()))
+                e_logs.append(('rec/eval/joint', recall.item()))
+                i_logs.append(('psnr/eval/joint', psnr.item()))
+                i_logs.append(('mae/eval/joint', mae.item()))
                 logs = e_logs + i_logs
 
 
             logs = [("it", iteration), ] + logs
+                
+            for _log in logs:
+                self.writer.add_scalar(_log[0], _log[1], iteration) 
+            
             progbar.add(len(images), values=logs)
 
     def test(self):
